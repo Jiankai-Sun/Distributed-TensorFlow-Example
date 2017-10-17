@@ -12,19 +12,19 @@ tf.app.flags.DEFINE_float('lr', 0.00003, 'Initial learning rate')
 learning_rate = FLAGS.lr
 
 def main(_):
-    global_step = tf.Variable(0, name='global_step', training=False)
+    global_step = tf.Variable(0, name='global_step', trainable=False)
 
     input = tf.placeholder("float")
     label = tf.placeholder("float")
 
-    weight = tf.get_varialbe("weight", [1], tf.float32, initializer=tf.random_normal_initializer())
-    biase = tf.get_varialbe("biase", [1], tf.float32, initializer=tf.random_normal_initializer())
+    weight = tf.get_variable("weight", [1], tf.float32, initializer=tf.random_normal_initializer())
+    biase = tf.get_variable("biase", [1], tf.float32, initializer=tf.random_normal_initializer())
     pred = tf.multiply(input, weight) + biase
 
     loss_value = loss(label, pred)
 
     train_op = tf.train.GradientDescentOptimizer(learning_rate).minimize(loss_value, global_step=global_step)
-    init_op = tf.initialize_all_variables()
+    init_op = tf.global_variables_initializer()
 
     saver = tf.train.Saver()
     session = tf.Session()
