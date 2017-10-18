@@ -2,8 +2,8 @@
 About a cluster of TensorFlow servers, and how to distribute a computation graph across that cluster
 
 # Requirements
-Python 3.5.2
-TensorFlow >= 1.3.0
+- Python 3.5.2
+- TensorFlow >= 1.3.0
 
 ## How to run
 ```
@@ -24,4 +24,4 @@ CUDA_VISIBLE_DEVICES='' python distributed.py --ps_hosts=192.168.1.203:10001 --w
 
 [thewintersun/distributeTensorflowExample](https://github.com/thewintersun/distributeTensorflowExample)
 
-
+Make sure the all nodes/hosts (ip address and ports) are at the same Local Area Network (LAN). If the IP address is not correct, there will be error `tensorflow.python.framework.errors_impl.UnknownError: Could not start gRPC server`
