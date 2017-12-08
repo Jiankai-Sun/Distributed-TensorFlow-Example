@@ -167,7 +167,7 @@ def input_fn(is_training, data_dir, batch_size, num_epochs=1):
   return images, labels
 
 
-def cifar10_model_fn(features, labels, mode='TRAIN', params):
+def cifar10_model_fn(features, labels, params):
   """Model function for CIFAR-10."""
   tf.summary.image('images', features, max_outputs=6)
 
@@ -175,15 +175,15 @@ def cifar10_model_fn(features, labels, mode='TRAIN', params):
       params['resnet_size'], _NUM_CLASSES, params['data_format'])
 
   inputs = tf.reshape(features, [-1, _HEIGHT, _WIDTH, _DEPTH])
-  logits = network(inputs, mode == tf.estimator.ModeKeys.TRAIN)
+  logits = network(inputs)
 
   predictions = {
       'classes': tf.argmax(logits, axis=1),
       'probabilities': tf.nn.softmax(logits, name='softmax_tensor')
   }
 
-  if mode == 'PREDICT':
-    return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
+#   if mode == 'PREDICT':
+#     return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
 
   # Calculate loss, which includes softmax cross entropy and L2 regularization.
   cross_entropy = tf.losses.softmax_cross_entropy(
@@ -197,36 +197,36 @@ def cifar10_model_fn(features, labels, mode='TRAIN', params):
   loss = cross_entropy + _WEIGHT_DECAY * tf.add_n(
       [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
 
-  if mode == 'TRAIN':
-    # Scale the learning rate linearly with the batch size. When the batch size
-    # is 128, the learning rate should be 0.1.
-    initial_learning_rate = 0.1 * params['batch_size'] / 128
-    batches_per_epoch = _NUM_IMAGES['train'] / params['batch_size']
-    global_step = tf.train.get_or_create_global_step()
+#   if mode == 'TRAIN':
+  # Scale the learning rate linearly with the batch size. When the batch size
+  # is 128, the learning rate should be 0.1.
+  initial_learning_rate = 0.1 * params['batch_size'] / 128
+  batches_per_epoch = _NUM_IMAGES['train'] / params['batch_size']
+  global_step = tf.train.get_or_create_global_step()
 
-    # Multiply the learning rate by 0.1 at 100, 150, and 200 epochs.
-    boundaries = [int(batches_per_epoch * epoch) for epoch in [100, 150, 200]]
-    values = [initial_learning_rate * decay for decay in [1, 0.1, 0.01, 0.001]]
-    learning_rate = tf.train.piecewise_constant(
-        tf.cast(global_step, tf.int32), boundaries, values)
+  # Multiply the learning rate by 0.1 at 100, 150, and 200 epochs.
+  boundaries = [int(batches_per_epoch * epoch) for epoch in [100, 150, 200]]
+  values = [initial_learning_rate * decay for decay in [1, 0.1, 0.01, 0.001]]
+  learning_rate = tf.train.piecewise_constant(
+      tf.cast(global_step, tf.int32), boundaries, values)
 
-    # Create a tensor named learning_rate for logging purposes
-    tf.identity(learning_rate, name='learning_rate')
-    tf.summary.scalar('learning_rate', learning_rate)
+  # Create a tensor named learning_rate for logging purposes
+  tf.identity(learning_rate, name='learning_rate')
+  tf.summary.scalar('learning_rate', learning_rate)
 
-    optimizer = tf.train.MomentumOptimizer(
-        learning_rate=learning_rate,
-        momentum=_MOMENTUM)
-    
-    # Add Horovod Distributed Optimizer.
-    optimizer = hvd.DistributedOptimizer(optimizer)
+  optimizer = tf.train.MomentumOptimizer(
+      learning_rate=learning_rate,
+      momentum=_MOMENTUM)
 
-    # Batch norm requires update ops to be added as a dependency to the train_op
-    update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
-    with tf.control_dependencies(update_ops):
+  # Add Horovod Distributed Optimizer.
+  optimizer = hvd.DistributedOptimizer(optimizer)
+
+  # Batch norm requires update ops to be added as a dependency to the train_op
+  update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+  with tf.control_dependencies(update_ops):
       train_op = optimizer.minimize(loss, global_step)
-  else:
-    train_op = None
+#   else:
+#     train_op = None
 
   accuracy = tf.metrics.accuracy(
       tf.argmax(labels, axis=1), predictions['classes'])
@@ -256,7 +256,7 @@ def main(unused_argv):
       'batch_size': FLAGS.batch_size,
     }
 
-  train_op = cifar10_model_fn(features, labels, mode='TRAIN', custom_params)
+  train_op = cifar10_model_fn(features, labels, custom_params, mode='TRAIN')
 
   # BroadcastGlobalVariablesHook broadcasts initial variable states from rank 0
   # to all other processes. This is necessary to ensure consistent initialization
@@ -284,7 +284,7 @@ def main(unused_argv):
                                         config=config) as mon_sess:
     while not mon_sess.should_stop():
         # Run a training step synchronously.
-        image_, label_ = input_fn(True, FLAGS.data_dir, FLAGS.batch_size, FLAGS.epochs_per_eval)) #mnist.train.next_batch(100)
+        image_, label_ = input_fn(True, FLAGS.data_dir, FLAGS.batch_size, FLAGS.epochs_per_eval) #mnist.train.next_batch(100)
         mon_sess.run(train_op, feed_dict={features: image_, label: label_})
 
 if __name__ == '__main__':
