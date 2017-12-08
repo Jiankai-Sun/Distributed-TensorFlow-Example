@@ -175,15 +175,12 @@ def cifar10_model_fn(features, labels, params):
       params['resnet_size'], _NUM_CLASSES, params['data_format'])
 
   inputs = tf.reshape(features, [-1, _HEIGHT, _WIDTH, _DEPTH])
-  logits = network(inputs)
+  logits = network(inputs, is_training=True)
 
   predictions = {
       'classes': tf.argmax(logits, axis=1),
       'probabilities': tf.nn.softmax(logits, name='softmax_tensor')
   }
-
-#   if mode == 'PREDICT':
-#     return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
 
   # Calculate loss, which includes softmax cross entropy and L2 regularization.
   cross_entropy = tf.losses.softmax_cross_entropy(
@@ -197,7 +194,6 @@ def cifar10_model_fn(features, labels, params):
   loss = cross_entropy + _WEIGHT_DECAY * tf.add_n(
       [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
 
-#   if mode == 'TRAIN':
   # Scale the learning rate linearly with the batch size. When the batch size
   # is 128, the learning rate should be 0.1.
   initial_learning_rate = 0.1 * params['batch_size'] / 128
@@ -225,8 +221,6 @@ def cifar10_model_fn(features, labels, params):
   update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
   with tf.control_dependencies(update_ops):
       train_op = optimizer.minimize(loss, global_step)
-#   else:
-#     train_op = None
 
   accuracy = tf.metrics.accuracy(
       tf.argmax(labels, axis=1), predictions['classes'])
@@ -236,7 +230,7 @@ def cifar10_model_fn(features, labels, params):
   tf.identity(accuracy[1], name='train_accuracy')
   tf.summary.scalar('train_accuracy', accuracy[1])
 
-  return train_op
+  return train_op,loss,global_step
 
 
 def main(unused_argv):
@@ -246,24 +240,21 @@ def main(unused_argv):
   # Using the Winograd non-fused algorithms provides a small performance boost.
   os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1'
   
-  with tf.name_scope('input'):
-    features = tf.placeholder(tf.float32, [None, 1024], name='image')
-    labels = tf.placeholder(tf.float32, [None], name='label')
-
   custom_params={
       'resnet_size': FLAGS.resnet_size,
       'data_format': FLAGS.data_format,
       'batch_size': FLAGS.batch_size,
     }
 
-  train_op = cifar10_model_fn(features, labels, custom_params, mode='TRAIN')
+  features, labels = input_fn(True, FLAGS.data_dir, FLAGS.batch_size, None) 
+  train_op, loss, global_step = cifar10_model_fn(features, labels, custom_params)
 
   # BroadcastGlobalVariablesHook broadcasts initial variable states from rank 0
   # to all other processes. This is necessary to ensure consistent initialization
   # of all workers when training is started with random weights or restored
   # from a checkpoint.
   hooks = [hvd.BroadcastGlobalVariablesHook(0),
-            tf.train.StopAtStepHook(last_step=100),
+            tf.train.StopAtStepHook(last_step=10000),
             tf.train.LoggingTensorHook(tensors={'step': global_step, 'loss': loss},
                                     every_n_iter=10),
             ]
@@ -284,8 +275,7 @@ def main(unused_argv):
                                         config=config) as mon_sess:
     while not mon_sess.should_stop():
         # Run a training step synchronously.
-        image_, label_ = input_fn(True, FLAGS.data_dir, FLAGS.batch_size, FLAGS.epochs_per_eval) #mnist.train.next_batch(100)
-        mon_sess.run(train_op, feed_dict={features: image_, label: label_})
+        mon_sess.run(train_op) 
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)

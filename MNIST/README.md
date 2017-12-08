@@ -3,14 +3,10 @@ About a cluster of TensorFlow servers, and how to distribute a computation graph
 
 # Requirements
 - Python 3.5.2
-- TensorFlow >= 1.4.0
+- TensorFlow >= 1.3.0
 - horovod
 
 ## How to run
-```
-python cifar10_download_and_extract.py
-python cifar10_main.py
-```
 
 Make sure the all nodes/hosts (ip address and ports) are at the same Local Area Network (LAN). If the IP address is not correct, there will be error `tensorflow.python.framework.errors_impl.UnknownError: Could not start gRPC server`
 
