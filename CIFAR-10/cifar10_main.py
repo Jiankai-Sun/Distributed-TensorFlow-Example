@@ -167,7 +167,7 @@ def input_fn(is_training, data_dir, batch_size, num_epochs=1):
   return images, labels
 
 
-def cifar10_model_fn(features, labels, mode, params):
+def cifar10_model_fn(features, labels, mode='TRAIN', params):
   """Model function for CIFAR-10."""
   tf.summary.image('images', features, max_outputs=6)
 
@@ -182,7 +182,7 @@ def cifar10_model_fn(features, labels, mode, params):
       'probabilities': tf.nn.softmax(logits, name='softmax_tensor')
   }
 
-  if mode == tf.estimator.ModeKeys.PREDICT:
+  if mode == 'PREDICT':
     return tf.estimator.EstimatorSpec(mode=mode, predictions=predictions)
 
   # Calculate loss, which includes softmax cross entropy and L2 regularization.
@@ -197,7 +197,7 @@ def cifar10_model_fn(features, labels, mode, params):
   loss = cross_entropy + _WEIGHT_DECAY * tf.add_n(
       [tf.nn.l2_loss(v) for v in tf.trainable_variables()])
 
-  if mode == tf.estimator.ModeKeys.TRAIN:
+  if mode == 'TRAIN':
     # Scale the learning rate linearly with the batch size. When the batch size
     # is 128, the learning rate should be 0.1.
     initial_learning_rate = 0.1 * params['batch_size'] / 128
@@ -217,6 +217,9 @@ def cifar10_model_fn(features, labels, mode, params):
     optimizer = tf.train.MomentumOptimizer(
         learning_rate=learning_rate,
         momentum=_MOMENTUM)
+    
+    # Add Horovod Distributed Optimizer.
+    optimizer = hvd.DistributedOptimizer(optimizer)
 
     # Batch norm requires update ops to be added as a dependency to the train_op
     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
@@ -233,48 +236,56 @@ def cifar10_model_fn(features, labels, mode, params):
   tf.identity(accuracy[1], name='train_accuracy')
   tf.summary.scalar('train_accuracy', accuracy[1])
 
-  return tf.estimator.EstimatorSpec(
-      mode=mode,
-      predictions=predictions,
-      loss=loss,
-      train_op=train_op,
-      eval_metric_ops=metrics)
+  return train_op
 
 
 def main(unused_argv):
+  # Initialize Horovod.
+  hvd.init()
+
   # Using the Winograd non-fused algorithms provides a small performance boost.
   os.environ['TF_ENABLE_WINOGRAD_NONFUSED'] = '1'
+  
+  with tf.name_scope('input'):
+    features = tf.placeholder(tf.float32, [None, 1024], name='image')
+    labels = tf.placeholder(tf.float32, [None], name='label')
 
-  # Set up a RunConfig to only save checkpoints once per training cycle.
-  run_config = tf.estimator.RunConfig().replace(save_checkpoints_secs=1e9)
-  cifar_classifier = tf.estimator.Estimator(
-      model_fn=cifar10_model_fn, model_dir=FLAGS.model_dir, config=run_config,
-      params={
-          'resnet_size': FLAGS.resnet_size,
-          'data_format': FLAGS.data_format,
-          'batch_size': FLAGS.batch_size,
-      })
-
-  for _ in range(FLAGS.train_epochs // FLAGS.epochs_per_eval):
-    tensors_to_log = {
-        'learning_rate': 'learning_rate',
-        'cross_entropy': 'cross_entropy',
-        'train_accuracy': 'train_accuracy'
+  custom_params={
+      'resnet_size': FLAGS.resnet_size,
+      'data_format': FLAGS.data_format,
+      'batch_size': FLAGS.batch_size,
     }
 
-    logging_hook = tf.train.LoggingTensorHook(
-        tensors=tensors_to_log, every_n_iter=100)
+  train_op = cifar10_model_fn(features, labels, mode='TRAIN', custom_params)
 
-    cifar_classifier.train(
-        input_fn=lambda: input_fn(
-            True, FLAGS.data_dir, FLAGS.batch_size, FLAGS.epochs_per_eval),
-        hooks=[logging_hook])
+  # BroadcastGlobalVariablesHook broadcasts initial variable states from rank 0
+  # to all other processes. This is necessary to ensure consistent initialization
+  # of all workers when training is started with random weights or restored
+  # from a checkpoint.
+  hooks = [hvd.BroadcastGlobalVariablesHook(0),
+            tf.train.StopAtStepHook(last_step=100),
+            tf.train.LoggingTensorHook(tensors={'step': global_step, 'loss': loss},
+                                    every_n_iter=10),
+            ]
 
-    # Evaluate the model and print results
-    eval_results = cifar_classifier.evaluate(
-        input_fn=lambda: input_fn(False, FLAGS.data_dir, FLAGS.batch_size))
-    print(eval_results)
+  # Pin GPU to be used to process local rank (one GPU per process)
+  config = tf.ConfigProto()
+  config.gpu_options.allow_growth = True
+  config.gpu_options.visible_device_list = str(hvd.local_rank())
 
+  # Save checkpoints only on worker 0 to prevent other workers from corrupting them.
+  checkpoint_dir = './checkpoints' if hvd.rank() == 0 else None
+
+  # The MonitoredTrainingSession takes care of session initialization,
+  # restoring from a checkpoint, saving to a checkpoint, and closing when done
+  # or an error occurs.
+  with tf.train.MonitoredTrainingSession(checkpoint_dir=checkpoint_dir,
+                                        hooks=hooks,
+                                        config=config) as mon_sess:
+    while not mon_sess.should_stop():
+        # Run a training step synchronously.
+        image_, label_ = input_fn(True, FLAGS.data_dir, FLAGS.batch_size, FLAGS.epochs_per_eval)) #mnist.train.next_batch(100)
+        mon_sess.run(train_op, feed_dict={features: image_, label: label_})
 
 if __name__ == '__main__':
   tf.logging.set_verbosity(tf.logging.INFO)
