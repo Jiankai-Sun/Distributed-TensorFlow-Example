@@ -81,16 +81,16 @@ def main(_):
                                                      global_step=global_step
                                                     )
 
-                init_op = tf.initialize_all_variables()
-
                 saver = tf.train.Saver()
-                tf.summary.scalar('cose', loss_value)
+                tf.summary.scalar('cost', loss_value)
                 summary_op = tf.summary.merge_all()
+
+                init_op = tf.global_variables_initializer()
 
             sv = tf.train.Supervisor(is_chief=(FLAGS.task_index==0),
                                      logdir="./checkpoint/",
                                      init_op=init_op,
-                                     summary_op=None,
+                                     summary_op=summary_op,
                                      saver=saver,
                                      global_step=global_step,
                                      save_model_secs=60                                        
@@ -108,7 +108,7 @@ def main(_):
                     _, loss_v, step = sess.run([train_op, loss_value, global_step], feed_dict={input:train_x, label:train_y})
                     if step % steps_to_validate == 0:
                         w, b = sess.run([weight, biase])
-                        print("step: %d, weight: %f, biase: %f, loss: %f" %(step, w, b, loss_v))          
+                        print("step: %d, weight: %f, biase: %f, loss: %f" %(step, w, b, loss_v))
 
             sv.stop()
 
