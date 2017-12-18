@@ -4,7 +4,6 @@ About a cluster of TensorFlow servers, and how to distribute a computation graph
 # Requirements
 - Python 3.5.2
 - TensorFlow >= 1.3.0
-- horovod
 
 ## How to run
 
