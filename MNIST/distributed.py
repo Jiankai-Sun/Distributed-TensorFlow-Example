@@ -55,6 +55,7 @@ def main(_):
             pred = tf.multiply(input, weight) + biase
 
             loss_value = loss(label, pred)
+            loss_value = tf.reshape(loss_value,[])
             optimizer = tf.train.GradientDescentOptimizer(learning_rate)
 
             grads_and_vars = optimizer.compute_gradients(loss_value)
@@ -90,7 +91,7 @@ def main(_):
             sv = tf.train.Supervisor(is_chief=(FLAGS.task_index==0),
                                      logdir="./checkpoint/",
                                      init_op=init_op,
-                                     summary_op=summary_op,
+                                     summary_op=None, #summary_op,
                                      saver=saver,
                                      global_step=global_step,
                                      save_model_secs=60                                        
@@ -105,10 +106,11 @@ def main(_):
                 while step < 1000000:
                     train_x = np.random.randn(1)
                     train_y = 2 * train_x + np.random.randn(1) * 0.33 + 10
-                    _, loss_v, step = sess.run([train_op, loss_value, global_step], feed_dict={input:train_x, label:train_y})
+                    _, loss_v, step, summary = sess.run([train_op, loss_value, global_step, summary_op], feed_dict={input:train_x, label:train_y})
                     if step % steps_to_validate == 0:
                         w, b = sess.run([weight, biase])
                         print("step: %d, weight: %f, biase: %f, loss: %f" %(step, w, b, loss_v))
+                        sv.summary_computed(sess, summary)
 
             sv.stop()
 
