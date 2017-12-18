@@ -56,6 +56,8 @@ def main(_):
 
             loss_value = loss(label, pred)
             loss_value = tf.reshape(loss_value,[])
+            weight_summary = tf.reshape(weight,[])
+            biase_summary = tf.reshape(biase,[])
             optimizer = tf.train.GradientDescentOptimizer(learning_rate)
 
             grads_and_vars = optimizer.compute_gradients(loss_value)
@@ -83,6 +85,9 @@ def main(_):
                                                     )
 
                 saver = tf.train.Saver()
+                tf.summary.scalar('Weight', weight_summary)
+                tf.summary.scalar('Biase', biase_summary)
+
                 tf.summary.scalar('cost', loss_value)
                 summary_op = tf.summary.merge_all()
 
