@@ -1,12 +1,12 @@
 # Distributed-TensorFlow-Example
 About a cluster of TensorFlow servers, and how to distribute a computation graph across that cluster
 
-# Requirements
+## Requirements
 - Python 3.5.2
 - TensorFlow >= 1.3.0
 
 ## Contents
-* MNIST
+* Logistic-Regression
 * CIFAR-10
 
 ## Reference
